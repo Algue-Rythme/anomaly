@@ -60,6 +60,9 @@ def generate_adversarial(model, x, phase):
     elif phase == 'adv':
         noise = tf.random.uniform([x.shape[0]]+[1]*(len(x.shape[1:])), 0., 1.)
         x_adv = x - 2 * direction * y * noise
+    elif phase == 'inconsistent':
+        noise = tf.random.uniform([x.shape[0]]+[1]*(len(x.shape[1:])), 0., 1.)
+        x_adv = x + 2 * direction * y * noise
     return x_adv
 
 
@@ -163,7 +166,7 @@ def plot_levels_lines(sk_func):
     dataset    = tf_dataset(num_batchs, batch_size, sk_func)
     X, Y       = sk_func(1000, noise=0.1)
     plotex.plot_levels(X, Y, model)
-    train_OOD_detector(model, dataset, num_batchs, lbda, 'adv')
+    train_OOD_detector(model, dataset, num_batchs, lbda, 'inconsistent')
     plotex.plot_levels(X, Y, model)
     plt.show()
 
