@@ -36,9 +36,9 @@ def get_cnn_baseline(input_shape):
 def get_mlp_baseline(input_shape):
     model = Sequential([
         Input(shape=input_shape),
-        SpectralDense(128, activation=GroupSort(n=4), kernel_initializer=BjorckInitializer(15, 50)),
-        SpectralDense(64, activation=GroupSort(n=4), kernel_initializer=BjorckInitializer(15, 50)),
-        SpectralDense(32, activation=GroupSort(n=4), kernel_initializer=BjorckInitializer(15, 50)),
+        SpectralDense(128, activation=GroupSort(n=2), kernel_initializer=BjorckInitializer(15, 50)),
+        SpectralDense(64, activation=GroupSort(n=2), kernel_initializer=BjorckInitializer(15, 50)),
+        SpectralDense(32, activation=GroupSort(n=2), kernel_initializer=BjorckInitializer(15, 50)),
         SpectralDense(1),
     ], k_coef_lip=1., name='baseline')
     return model
