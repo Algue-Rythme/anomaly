@@ -145,9 +145,9 @@ def plot_levels_lines(sk_func):
     seed_dispatcher(None)
     model = models.get_mlp_baseline(input_shape)
 
-    num_batchs = 200
+    num_batchs = 1000
     batch_size = 100  # 100
-    lbda       = 1.
+    lbda       = 10.
     alpha      = 0.
     phase      = 'adversarial'
     scale      = 10.
