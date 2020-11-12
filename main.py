@@ -1,7 +1,7 @@
 import random
 
 import matplotlib
-matplotlib.use('tkagg')
+# matplotlib.use('tkagg')
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -148,8 +148,8 @@ def plot_levels_lines(sk_func):
     lbda       = 1.
     alpha      = 0.
     phase      = 'adversarial'
-    margin     = 5.
-    dilatation = 10.
+    margin     = 1.  #5.
+    dilatation = 1.  # 10.
     sk_func    = dilated_func(sk_func, dilatation)
 
     dataset    = tf_dataset(num_batchs, batch_size, sk_func)
