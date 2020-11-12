@@ -12,7 +12,7 @@ def gradient_penalty(norm_nabla_f_x):
     return tf.reduce_mean((norm_nabla_f_x - 1.)**2.)
 
 
-@tf.function
+# @tf.function
 def get_grad_norm_with_tape(tape, y, x):
     nabla_f_x = tape.gradient(y, x)
     norm_nabla_f_x = tf.reduce_sum(x ** 2, axis=list(range(1, len(x.shape))), keepdims=True)
