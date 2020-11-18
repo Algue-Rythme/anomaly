@@ -19,7 +19,7 @@ def get_limits(X, coef):
     return inf_x, sup_x, inf_y, sup_y
 
 def get_xx_yy(X, Y, model):
-    inf_x, sup_x, inf_y, sup_y = get_limits(X, 0.6)
+    inf_x, sup_x, inf_y, sup_y = get_limits(X, 0.3)
     x = np.linspace(inf_x, sup_x, 300)
     y = np.linspace(inf_y, sup_y, 300)
     xx, yy = np.meshgrid(x, y, sparse=False)
@@ -29,7 +29,8 @@ def get_xx_yy(X, Y, model):
     return xx, yy, pred
 
 
-def plot_levels(X, Y, model):
+def plot_levels(X, Y, model, fig, index):
+    fig.add_subplot(index)
     plt.xlabel('X')
     plt.ylabel('Y')
     xx, yy, pred = get_xx_yy(X, Y, model)
@@ -38,10 +39,12 @@ def plot_levels(X, Y, model):
     plt.clabel(cset, inline=1, fontsize=10)
 
 
-def plot3d(X, Y, model):
+def plot3d(X, Y, model, fig, index):
     xx, yy, pred = get_xx_yy(X, Y, model)
-    fig, ax = plt.subplots(ncols=2, subplot_kw={'projection':'3d'}, figsize=(20, 10))
-    surf = ax[0].plot_surface(xx, yy, pred, cmap=cm.coolwarm,
-                              linewidth=0, antialiased=True)
-    ax[1].view_init(azim=0, elev=90)
-    surf=ax[1].plot_surface(xx, yy, pred,cmap='coolwarm',linewidth=0,antialiased=True)
+    # fig, ax = plt.subplots(ncols=2, subplot_kw={'projection':'3d'}, figsize=(20, 10))
+    # surf = ax[0].plot_surface(xx, yy, pred, cmap=cm.coolwarm,
+    #                           linewidth=0, antialiased=True)
+    # ax[1].view_init(azim=0, elev=90)
+    # surf=ax[1].plot_surface(xx, yy, pred,cmap='coolwarm',linewidth=0,antialiased=True)
+    ax = fig.add_subplot(index, projection='3d')
+    ax.plot_surface(xx, yy, pred, cmap=cm.coolwarm, linewidth=0, antialiased=True)
