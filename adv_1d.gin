@@ -1,0 +1,18 @@
+plot_levels_lines.sk_func_name = 'make_blobs'
+plot_levels_lines.num_batchs = 1000
+plot_levels_lines.batch_size = 100
+plot_levels_lines.num_examples_draw = 5000
+plot_levels_lines.batch_size_draw = 100
+plot_levels_lines.proj1D = True
+plot_levels_lines.init_landscape = False
+get_limits.coef = 0.1
+
+generate_adversarial.max_iter = 10
+generate_adversarial.h_x_0 = 2.
+generate_adversarial.h_x = 0.
+generate_adversarial.mult = 5.
+generate_adversarial.uniform = True
+
+one_class_wasserstein.lbda = 20.
+one_class_wasserstein.scale = 0.1
+one_class_wasserstein.margin = 0.2

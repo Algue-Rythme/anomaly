@@ -1,0 +1,20 @@
+plot_levels_lines.sk_func_name = 'make_moons'
+plot_levels_lines.num_batchs = 1000
+plot_levels_lines.batch_size = 100
+plot_levels_lines.num_examples_draw = 1000
+plot_levels_lines.batch_size_draw = 100
+plot_levels_lines.proj1D = False
+plot_levels_lines.init_landscape = True
+get_limits.coef = 0.75
+
+generate_adversarial.max_iter = 10
+generate_adversarial.w_weight = 0.
+generate_adversarial.border = 3.
+generate_adversarial.h_x_0 = 0.  # 2. before
+generate_adversarial.h_x = 2.  # 0. before
+generate_adversarial.mult = 5.
+generate_adversarial.uniform = False
+
+one_class_wasserstein.lbda = 10. # 500. before
+one_class_wasserstein.scale = 1.
+one_class_wasserstein.margin = 0.2
