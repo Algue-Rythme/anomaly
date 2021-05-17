@@ -9,6 +9,7 @@ import matplotlib.patches as mpatches
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.nn import sigmoid_cross_entropy_with_logits
 import tensorflow.keras.activations as activations
 from sklearn.datasets import make_moons, make_circles, make_blobs
 from tensorflow.keras import backend as K
@@ -23,10 +24,22 @@ from utils import exp_avg, tf_dataset, dilated_func, seed_dispatcher, projected
 
 
 @tf.function
-def binary_crossentropy(y, y_adv):
-    logloss0 = tf.nn.sigmoid_cross_entropy_with_logits(tf.ones([int(y.shape[0]),1]), y)
-    logloss1 = tf.nn.sigmoid_cross_entropy_with_logits(tf.zeros([int(y_adv.shape[0]),1]), y_adv)
-    return tf.debugging.check_numerics(-(tf.reduce_mean(logloss0) + tf.reduce_mean(logloss1)), 'binary')
+def binary_crossentropy(y, y_adv, false_neg_weight):
+    """
+        f(x):  one labels : supports examples
+              zero labels : adversarial examples
+
+        with Wasserstein:
+
+        f(x): positive E[f] : support examples
+              negative E[f] : adversarial examples
+    """
+    logloss0 = tf.reduce_mean(sigmoid_cross_entropy_with_logits(tf.ones([int(y.shape[0]),1]), y))
+    false_neg, true_neg = tf.split(y_adv, 2)
+    false_neg_loss = sigmoid_cross_entropy_with_logits(tf.zeros([int(false_neg.shape[0]),1])+0.5, false_neg)
+    true_neg_loss = sigmoid_cross_entropy_with_logits(tf.zeros([int(true_neg.shape[0]),1]), true_neg)
+    logloss1 = false_neg_weight*tf.reduce_mean(false_neg_loss) + (1-false_neg_weight)*tf.reduce_mean(true_neg_loss)
+    return logloss0 + logloss1
 
 
 @gin.configurable
@@ -34,33 +47,34 @@ def one_class_wasserstein(model, x, optimizer,
                           lbda=gin.REQUIRED,
                           scale=gin.REQUIRED,
                           margin=gin.REQUIRED,
-                          logloss=gin.REQUIRED):
+                          logloss=gin.REQUIRED,
+                          false_neg_weight=gin.REQUIRED):
     adv = complement_distribution(model, x, scale, margin)
 
     with tf.GradientTape(persistent=True) as tape:
         tape.watch(x)
 
-        y     = tf.debugging.check_numerics(model(x, training=True), 'y_orig')
+        y     = model(x, training=True)
         y_adv = model(adv, training=True)
 
         if logloss:
-            wasserstein = binary_crossentropy(y, y_adv)
+            loss = binary_crossentropy(y, y_adv, false_neg_weight)
         else:
-            wasserstein = tf.reduce_mean(y) - tf.reduce_mean(y_adv)
-        hinge       = oneclass_hinge(margin, y) + oneclass_hinge(margin, -y_adv)
-        loss        = -wasserstein + lbda*hinge
+            loss = -(tf.reduce_mean(y) - tf.reduce_mean(y_adv)) # minus because maximization instead of minimization
+
+        hinge = 0.
+        if lbda != 0.:
+            hinge = oneclass_hinge(margin, y) + oneclass_hinge(margin, -y_adv)
+            loss = loss + lbda*hinge
 
     _, norm_nabla_f_x = get_grad_norm_with_tape(tape, y, x)  
     grads = tape.gradient(loss, model.trainable_variables)
-    grads = [tf.debugging.check_numerics(g, 'model_grad') for g in grads]
     optimizer.apply_gradients(zip(grads, model.trainable_variables))
-    return loss, wasserstein, hinge, norm_nabla_f_x
+    return loss, tf.reduce_mean(y), hinge, norm_nabla_f_x
 
 
 def train_OOD_detector(model, dataset, num_batchs):
     optimizer = Adam()
-    # optimizer = RMSprop()
-    # optimizer = SGD(learning_rate=1e-5, momentum=0.9, nesterov=True)
     progress = tqdm(total=num_batchs, ascii=True)
     loss_avg, w_avg, hinge_avg, m = None, None, None, 0.97
     penalties = []
@@ -110,6 +124,7 @@ def draw_adv(model, sk_func, X, num_examples_draw, batch_size_draw, fig, index):
 def plot_levels_lines(sk_func_name=gin.REQUIRED,
                       num_batchs=gin.REQUIRED,
                       batch_size=gin.REQUIRED,
+                      k_lip=gin.REQUIRED,
                       num_examples_draw=gin.REQUIRED,
                       batch_size_draw=gin.REQUIRED,
                       proj1D=gin.REQUIRED,
@@ -135,7 +150,7 @@ def plot_levels_lines(sk_func_name=gin.REQUIRED,
     X, _       = sk_func(num_examples_draw)
     dataset    = tf_dataset(num_batchs, batch_size, sk_func)
     input_shape = X.shape[1:]
-    model = models.get_mlp_baseline(input_shape)  # models.get_mlp_no_bias(input_shape)
+    model = models.get_mlp_baseline(input_shape, k_lip)
 
     fig = plt.figure(figsize=(22,15))
     plotex.plot_levels(X, model, fig, 121 if proj1D else 231)
@@ -145,7 +160,6 @@ def plot_levels_lines(sk_func_name=gin.REQUIRED,
         plotex.plot3d(X, model, fig, 233)
 
     try:
-        # raise tf.python.framework.errors_impl.InvalidArgumentError(None, None,"Oulala")
         penalties = train_OOD_detector(model, dataset, num_batchs)
     except tf.python.framework.errors_impl.InvalidArgumentError as e:
         from deel.lip.normalizers import bjorck_normalization, spectral_normalization

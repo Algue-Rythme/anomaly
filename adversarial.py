@@ -30,11 +30,14 @@ def metric_entropy(x, fixed, scale, margin):
     similarities = tf.math.exp(distances * (-1.))
     typicality   = tf.reduce_mean(similarities, axis=1)
     entropy      = -tf.reduce_mean(tf.math.log(typicality))
-    return tf.debugging.check_numerics(entropy, 'entropy')
+    return entropy
 
 
 @tf.function
 def ball_repulsion(x, fixed, scale, margin):
+    """Average distance from each 'x' to 'fixed'.
+
+    """
     x         = tf.reshape(x, shape=[x.shape[0], 1, -1])
     fixed     = tf.reshape(fixed, shape=[1, fixed.shape[0], -1])
     distances = x - fixed
@@ -43,11 +46,11 @@ def ball_repulsion(x, fixed, scale, margin):
     distances = distances / (scale**2.)  # just to normalize gradient
     sum_dists = tf.reduce_sum(distances, axis=1)  # square distance instead of hinge
     # because numerical instabilities otherwise :(
-    return tf.debugging.check_numerics(tf.reduce_mean(sum_dists), 'ball')
+    return tf.reduce_mean(sum_dists)
 
 
 def renormalize_grads(grads):
-    return [tf.debugging.check_numerics(tf.math.l2_normalize(grad), 'grad') for grad in grads]
+    return [tf.math.l2_normalize(grad) for grad in grads]
 
 
 def uniform_noise(x_0, scale):
@@ -62,7 +65,7 @@ def uniform_noise(x_0, scale):
 
 @tf.function
 def frontiere_distance(y, margin):
-    return -tf.math.abs(y + margin)  # to be minimized
+    return tf.math.abs(y + margin)  # to be minimized
 
 
 @gin.configurable
@@ -73,44 +76,69 @@ def generate_adversarial(model, x_0, scale, margin, true_negative,
                          h_x_0   =gin.REQUIRED,
                          h_x     =gin.REQUIRED,
                          mult    =gin.REQUIRED,
-                         logloss =gin.REQUIRED):
+                         logloss =gin.REQUIRED,
+                         reversedlogloss=gin.REQUIRED):
     learning_rate = (mult * margin) / max_iter
+    if true_negative:
+        learning_rate = learning_rate * model._get_coef()
     optimizer     = SGD(learning_rate=learning_rate)  # no momentum required due to smooth optimization landscape
 
     # x_init is perturbed x_0, with atmost 10% of a gradient step (which can be admittely quite high)
     x_init = x_0 + 0.1*learning_rate*tf.math.l2_normalize(tf.random.uniform(x_0.shape, -1., 1.))
-    x      = tf.Variable(initial_value=tf.debugging.check_numerics(x_init, 'x_init'), trainable=True)
+    x      = tf.Variable(initial_value=x_init, trainable=True)
     for _ in range(max_iter):
         with tf.GradientTape() as tape:
             try:
-                xt = tf.debugging.check_numerics(x, 'x_adv')
-                #tf.debugging.enable_check_numerics()
-                y = tf.debugging.check_numerics(model(xt), 'y')
-                #tf.debugging.disable_check_numerics()
+                y = model(x)
             except tf.python.framework.errors_impl.InvalidArgumentError as e:
                 norm = tf.reduce_sum(x ** 2.)
                 print('adversarial', norm, x)
                 raise e
-            # fidelity     = h_x_0 * metric_entropy(x, x_0, scale, margin)
-            fidelity   = h_x_0 * ball_repulsion(x, x_0, scale, margin)  # avoid true positive
-            dispersion = h_x * metric_entropy(x, x, scale, margin)  # regularization
-            if logloss:
+            
+            if logloss:  # binary cross-entropy
+                zeros = tf.zeros([int(y.shape[0]),1]) # seek frontiere
                 ones = tf.ones([int(y.shape[0]),1])
-                """if true_negative:  # otherwise false positive
-                    ones = tf.zeros([int(y.shape[0]),1])"""
-                ce = tf.nn.sigmoid_cross_entropy_with_logits(ones, y)
-                adversarial_score = -1. * w_weight * tf.reduce_mean(ce)
-            else:
-                adversarial_score = w_weight * tf.reduce_mean(y)
-            if true_negative:  # otherwise false positive
-                adversarial_score = -adversarial_score
-            frontiere_score = border * frontiere_distance(y, margin)
-            loss = adversarial_score + dispersion + fidelity + frontiere_score
-            loss = tf.debugging.check_numerics(-loss, 'loss')  # minimize -loss <=> maximize loss (but must be regularized)
+                if reversedlogloss:
+                    zeros, ones = ones, zeros
+                if true_negative:  # where f is already negative, add examples
+                    ce = tf.nn.sigmoid_cross_entropy_with_logits(zeros+0.5, y)
+                else:  # otherwise f is positive but really shouldn't (most of the time), we remove those parts
+                    ce = tf.nn.sigmoid_cross_entropy_with_logits(ones, y)
+                adversarial_score = tf.reduce_mean(ce)
+                if reversedlogloss:
+                    adversarial_score = -adversarial_score
+            else:  # wasserstein bro: sign is flipped because minimization of loss instead maximization of cost
+                if true_negative:
+                    adversarial_score = tf.reduce_mean(y)  # seek x of f(x) negative
+                else:
+                    adversarial_score = -tf.reduce_mean(y)  # seek x of f(x) positive
+
+            loss = w_weight*adversarial_score
+            if (h_x_0 + h_x + border) > 0.:
+                fidelity   = -h_x_0 * ball_repulsion(x, x_0, scale, margin)  # avoid true positive, irrelevant
+                dispersion = -h_x * metric_entropy(x, x, scale, margin)  # regularization to cover space
+                frontiere_score = border * frontiere_distance(y, margin)
+                loss = loss + dispersion + fidelity + frontiere_score  # minimize loss
+
         grad_f_x = tape.gradient(loss, [x])
         grad_f_x = renormalize_grads(grad_f_x)  # keep good learning rate
         optimizer.apply_gradients(zip(grad_f_x,[x]))
-    return tf.debugging.check_numerics(x.value(), 'y_adv')
+    return x.value()
+
+"""
+Two strategies with Binary Cross Entropy:
+
+1) Maximize Error on Wrong Labels
+    Maximize Error on Label 1 (an attack, catch f negative)
+    Maximize Error on Label 0 (support, catch f positive)
+
+2) Minimize Error on True Labels
+    Minimize Error on Label 0 (a "soft" attack, catch f negative)
+    Minimize Error on Label 1 (support, catch f positive)
+
+For now we implemented Strategy 2) since it is more natural to minimize a loss
+But strategy 1) may have some potential (warning NaN)
+"""
 
 
 @gin.configurable

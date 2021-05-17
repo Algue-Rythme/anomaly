@@ -1,0 +1,28 @@
+plot_levels_lines.sk_func_name = 'make_moons'
+plot_levels_lines.batch_size = 16  # small, go to 32
+plot_levels_lines.num_examples_draw = 1000
+plot_levels_lines.batch_size_draw = 100
+plot_levels_lines.proj1D = False
+plot_levels_lines.init_landscape = True
+plot_levels_lines.num_batchs = 4000
+plot_levels_lines.k_lip = 8.
+get_limits.coef = 0.3
+
+logloss = True # logloss=True + margin=0.2 + h_x_0=2. + h_x=0. => OK :) even with very small batchs !!
+
+generate_adversarial.max_iter = 5 # small steps
+generate_adversarial.w_weight = 1.
+generate_adversarial.border = 0.
+generate_adversarial.h_x_0 = 0.  # 2. else
+generate_adversarial.h_x = 0.  # 20. else
+generate_adversarial.mult = 10.  # number of times the margin for adversaries
+generate_adversarial.logloss = %logloss
+generate_adversarial.reversedlogloss = False
+complement_distribution.uniform = False
+complement_distribution.symmetric = True
+
+one_class_wasserstein.lbda = 0.  # no Hinge
+one_class_wasserstein.scale = 1.
+one_class_wasserstein.margin = 0.2
+one_class_wasserstein.logloss = %logloss  
+one_class_wasserstein.false_neg_weight = 0.7  # not too high (!!!)

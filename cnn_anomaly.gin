@@ -1,0 +1,24 @@
+one_class_dataset.batch_size = 32
+one_class_dataset.in_labels = [5]
+one_class_dataset.out_labels = [0,1,2,3,4,6,7,8,9]  # hard ?
+
+adv_training.training_type = 'wasserstein'
+adv_training.lbda = 0.5  # balanced case
+adv_training.alpha = 10.  # HKR importance
+adv_training.false_positive_radius = 1.
+adv_training.true_negative_radius = 0.3
+adv_training.margin = 0.035 # in ratio of pixels that can be forged = 3.5%
+adv_training.temperature = 1.
+
+generate_adversarial.step_size = 1.
+generate_adversarial.max_iter = 20
+generate_adversarial.n_stop = 0
+generate_adversarial.l1_regularization = None
+
+train.num_epochs = 200
+
+model_params.k_lip = 1.
+model_params.scale = 8
+model_params.niter_spectral = 3
+model_params.niter_bjorck = 5
+model_params.bjorck_forward = False
