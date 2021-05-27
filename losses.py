@@ -177,7 +177,7 @@ class TopKMarginHKR(tf.keras.losses.Loss):
 
         # hinge
         y_pred_false = y_pred - mask * tf.reduce_max(y_pred, axis=1, keepdims=True)
-        max_others, _= tf.math.top_k(y_pred_false, k=self.top_k, axis=1, sorted=False)
+        max_others, _= tf.math.top_k(y_pred_false, k=self.top_k, sorted=False)
         y_pred_true  = tf.reduce_sum(y_pred * mask, axis=1, keepdims=True)
         margin_other = y_pred_true - max_others
         true_margin  = tf.reduce_sum(self.margins * mask, axis=1, keepdims=True)

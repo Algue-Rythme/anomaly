@@ -42,13 +42,13 @@ from losses import MultiClassHKR, CrossEntropyT, MinMarginHKR, MarginWatcher, To
 
 config=AttrDict({
     "dataset_name": 'cifar100',
-    "loss_type": 'multiminhkr',
+    "loss_type": 'multitopkhkr',
     "net_type": 'lip',
     "epochs": 300,  # more epochs
     "batch_size": 300,  # smaller batchs to improve generalization
     "balanced": False,
-    "alpha": 500.,
-    "margin": 0.01,
+    "alpha": 1000.,
+    "margin": 0.001,
     "max_T": 10.,  # big already
     "k_lip": 1.0,
     "optimizer": 'adam',
@@ -56,10 +56,11 @@ config=AttrDict({
     "scale": 128,
     "stiefel": True,
     "condense": True,
-    "multihead": None,  # 1 neck
+    "multihead": None,
     "scaler": False,
     "deep": True,
     "very_deep": False,
+    "final_pooling": 'flatten',
     "target_accuracy": 0.95,
     "random_labels": False,
     })
@@ -89,7 +90,7 @@ else:
         output_shape = 10
     elif config.dataset_name == 'cifar100':
         output_shape = 100
-eager = True
+eager = False
 monitor_grad_norm = False  # speed up computations
 monitore_eigenvalues = False
 monitore_weights = True
@@ -200,7 +201,7 @@ def get_compiled(loss_type, net, optimizer, min_margin):
         loss_fn = TopKMarginHKR(
             alpha=config.alpha,
             margins=margins,
-            k=int(output_shape**0.5))
+            top_k=int(output_shape**0.5))
         metrics = ['accuracy']
     if 'armijo' in config.optimizer:
         metrics.append(ArmijoMetric(net.armijo))
@@ -209,7 +210,7 @@ def get_compiled(loss_type, net, optimizer, min_margin):
     return net, loss_fn
 
 def cosine_scheduler(epoch):
-    alpha = 0.1
+    alpha = 0.01
     step = min(epoch, config.epochs)
     cosine_decay = 0.5 * (1 + np.cos(np.pi * step / config.epochs))
     decayed = (1 - alpha) * cosine_decay + alpha
@@ -242,7 +243,9 @@ def launch_train(net_type, k_coef_lip, min_margin):
         net = get_lipschitz_overfitter(CustomSequential, input_shape=input_shape, output_shape=output_shape,
             k_coef_lip=k_coef_lip, scale=config.scale, niter_bjorck=niter_bjorck, niter_spectral=niter_spectral,
             groupsort=True, conv=True, bjorck_forward=True,
-            scaler=config.scaler, multihead=config.multihead, deep=config.deep, very_deep=config.very_deep)
+            scaler=config.scaler, multihead=config.multihead,
+            deep=config.deep, very_deep=config.very_deep,
+            final_pooling=config.final_pooling)
     elif net_type == 'notlip':
         net = get_unconstrained_overfitter(input_shape=input_shape, output_shape=output_shape,
                                            k_coef_lip=k_coef_lip, scale=config.scale)
@@ -258,7 +261,7 @@ def launch_train(net_type, k_coef_lip, min_margin):
         if config.optimizer == 'armijo':
             batch_per_epoch = math.ceil(x_train.shape[0] / config.batch_size)
             optimizer = Armijo(batch_per_epoch, c=0.2, condense=True,
-                               polyak_momentum=0.9)
+                               polyak_momentum=None)
             net.armijo = optimizer
         else:
             if config.optimizer == 'armijo_expensive':

@@ -1,3 +1,4 @@
+from os import name
 import deel
 import tensorflow as tf
 from deel.lip.initializers import BjorckInitializer
@@ -573,6 +574,60 @@ class UnitaryRowsDense(Dense, LipschitzLayer, Condensable):
         return layer
 
 
+class ResidualBlock(tf.keras.layers.Layer, LipschitzLayer, Condensable):
+    def __init__(self, scale, stride, conv11, params, **kwargs):
+        super().__init__(**kwargs)
+        self.path = [
+            GroupSort2(),
+            SpectralConv2D(scale * 1, (3, 3), strides=(stride, stride), **params),
+            GroupSort2(),
+            SpectralConv2D(scale * 1, (3, 3), strides=(1, 1))
+        ]
+        if conv11:
+            self.last_conv = SpectralConv2D(scale * 1, (1, 1))
+        else:
+            self.last_conv = lambda x: x
+        if stride > 1:
+            self.pool = ScaledL2NormPooling2D(pool_size=(stride,stride))
+        else:
+            self.pool = None
+    def condense(self):
+        self.path[1].condense()
+        self.path[3].condense()
+        return super().condense()
+    def call(self, x, training=None):
+        y = x
+        for layer in self.path:
+            y = layer(y)
+        if self.pool is not None:
+            x = self.pool(x)
+        y = tf.concat([x, y], axis=-1) / tf.math.sqrt(2, dtype=tf.float32)
+        y = self.last_conv(y)
+        return y
+
+
+def make_resnet(ModelType, input_shape, output_shape, block_depths, block_widths, k_coef_lip,
+                reduce_dims, conv11, niter_bjorck, niter_spectral, bjorck_forward, final_pooling):
+    params = {'niter_bjorck':niter_bjorck, 'niter_spectral':niter_spectral, 'bjorck_forward':bjorck_forward}
+    layers = [tf.keras.layers.Input(shape=input_shape)]
+    def makeblocks(block_depth, block_width, stride):
+        layers = [ResidualBlock(block_width, stride=stride, conv11=conv11, params=params)]
+        for _ in range(block_depth-1):
+            layers.append(ResidualBlock(block_width, stride=1, conv11=conv11, params=params))
+        return layers
+    for idx, (block_depth, block_width) in enumerate(zip(block_depths, block_widths)):
+        stride = 2 if reduce_dims == 'stride' and idx != 0 else 1
+        layers += makeblocks(block_depth, block_width, stride)
+        if reduce_dims == 'stride' and idx+1 < len(block_depths):
+            layers.append(ScaledL2NormPooling2D(pool_size=(2,2)))
+    if final_pooling == 'flatten':
+        layers.append(Flatten())
+    else:
+        layers.append(GlobalL2NormPooling2D)
+    layers += [UnitaryRowsDense(output_shape)]
+    return ModelType(layers, k_coef_lip=k_coef_lip, name='lipschitz_resnet')
+
+
 class IfThen(tf.keras.layers.Layer):
     def __init__(self, temperature=1., **kwargs):
         super().__init__(**kwargs)
@@ -602,7 +657,7 @@ class IfThen(tf.keras.layers.Layer):
             dy = tf.reshape(dy, [-1, 4])
             yw, yt, ya, yb = tf.split(dy, num_or_size_splits=4, axis=-1)
 
-            c = w - t
+            c = self.temperature*(w - t)
             dya_a = tf.math.sigmoid(c)
             dyb_b = tf.math.sigmoid(-c)
 
@@ -630,7 +685,7 @@ class IfThen(tf.keras.layers.Layer):
 def get_lipschitz_overfitter(ModelType, input_shape, output_shape, k_coef_lip, scale,
                              niter_bjorck, niter_spectral, groupsort,
                              conv, bjorck_forward, scaler, multihead,
-                             deep, very_deep):
+                             deep, very_deep, final_pooling):
     Act = (lambda : GroupSort2()) if groupsort else (lambda : FullSort())
     layers = [tf.keras.layers.Input(shape=input_shape)]
     if conv:
@@ -641,7 +696,6 @@ def get_lipschitz_overfitter(ModelType, input_shape, output_shape, k_coef_lip, s
             pooler = lambda : ScaledL2NormPooling2D(pool_size=(2,2))
         elif pooling == 'invertible':
             pooler = lambda : InvertibleDownSampling(pool_size=(2,2))
-        final = 'flatten'
         layers += [
             conv_maker(scale * 1, (3, 3)),
             GroupSort2(),
@@ -668,14 +722,15 @@ def get_lipschitz_overfitter(ModelType, input_shape, output_shape, k_coef_lip, s
             ]
         if pooling == 'invertible':
             layers.append(conv_maker(scale * 1, (1, 1)))
-    if final == 'flatten':
+    if final_pooling == 'flatten':
         layers += [pooler(), tf.keras.layers.Flatten()]
-    elif final == 'global':
+    elif final_pooling == 'global':
         layers.append(GlobalL2NormPooling2D())
-    layers += [SpectralDense(4 * scale, niter_bjorck=niter_bjorck, niter_spectral=niter_spectral, bjorck_forward=bjorck_forward),
+    dense_scale = min(512, 4 * scale)
+    layers += [SpectralDense(dense_scale, niter_bjorck=niter_bjorck, niter_spectral=niter_spectral, bjorck_forward=bjorck_forward),
                Act()]
     if deep:
-        layers += [SpectralDense(4 * scale, niter_bjorck=niter_bjorck, niter_spectral=niter_spectral, bjorck_forward=bjorck_forward),
+        layers += [SpectralDense(dense_scale, niter_bjorck=niter_bjorck, niter_spectral=niter_spectral, bjorck_forward=bjorck_forward),
                    Act()]
     if multihead is not None:
         heads_width = int(scale / (output_shape**0.5))  # heuristic
@@ -683,7 +738,7 @@ def get_lipschitz_overfitter(ModelType, input_shape, output_shape, k_coef_lip, s
                       niter_bjorck=niter_bjorck, niter_spectral=niter_spectral, bjorck_forward=bjorck_forward))
     else:
         layers += [
-            SpectralDense(4 * scale, niter_bjorck=niter_bjorck,
+            SpectralDense(dense_scale, niter_bjorck=niter_bjorck,
                           niter_spectral=niter_spectral, bjorck_forward=bjorck_forward),
             Act(),
             UnitaryRowsDense(output_shape),
